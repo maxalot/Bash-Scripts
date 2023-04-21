@@ -1,0 +1,238 @@
+- hosts: PVE
+  remote_user: root
+  tasks:
+    - name: Adding ansible SSH Pubkey as authorized
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '/home/marte/.ssh/id_rsa.pub') }}"
+        key_options: 'from="10.100.0.143"'
+    - name: changing Root login policy of SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PermitRootLogin"
+        insertafter: "^#.PermitRootLogin"
+        line: "PermitRootLogin without-password"
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify:
+        - restart ssh
+    - name: changing challenge response policy of SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^ChallengeResponseAuthentication"
+        insertafter: "^#.ChallengeResponseAuthentication"
+        line: "ChallengeResponseAuthentication yes"
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify:
+        - restart ssh
+    - name: adding line to /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: "^alias l="
+        line: "alias l='ls -lFh --color=auto'"
+    - name: adding line to /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: "^alias df="
+        line: "alias df='df -h'"
+    - name: adding line to /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: "^alias free="	  
+        line: "alias free='free -h'"
+    - name: adding line to /etc/profile
+      lineinfile:
+        path: /etc/profile
+        regexp: "^alias zl="	  
+        line: "alias zl='zfs list -o name,volsize,used,refer,avail,mountpoint'"
+    - name: adding line to /etc/profile
+      lineinfile:
+        path: /etc/profile
+        line: "alias pico='nano -cw'"
+    - name: adding user
+      user:   
+        name: <myUser>
+        uid: 500
+        group: users
+        shell: /bin/bash
+        update_password: on_create
+        comment: "<my real name>"
+        password: "<enter hash here>"
+        groups: users
+    - name: adding PVE-no-subscription repo
+      blockinfile:
+        path: /etc/apt/sources.list
+        insertbefore: "^# security"
+        block: |
+          # PVE pve-no-subscription repository provided by proxmox.com,
+          # NOT recommended for production use
+          deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription
+#    - name: adding non-free Repo - buster
+#      lineinfile:
+#        path: /etc/apt/sources.list
+#        regexp: "^deb http://ftp.de.debian.org/debian buster main contrib"
+#        line: "deb http://ftp.de.debian.org/debian buster main contrib non-free"
+#    - name: adding non-free Repo - buster-updates
+#      lineinfile:
+#        path: /etc/apt/sources.list
+#        regexp: "^deb http://ftp.de.debian.org/debian buster-updates main contrib"
+#        line: "deb http://ftp.de.debian.org/debian buster-updates main contrib non-free"
+#    - name: adding non-free Repo - security
+#      lineinfile:
+#        path: /etc/apt/sources.list
+#        regexp: "^deb http://security.debian.org buster/updates main contrib"
+#        line: "deb http://security.debian.org buster/updates main contrib non-free"
+    - name: upgrading system
+      apt:
+        upgrade: full
+        update_cache: yes
+        cache_valid_time: 7200
+    - name: installing aptitude
+      apt:
+        name: aptitude
+        state: present
+    - name: installing sudo
+      apt:
+        name: sudo
+        state: present
+    - name: adding sudo for nagios
+      lineinfile:
+        path: /etc/sudoers
+        regexp: "^nagios"
+        insertafter: "^#.User"
+        line: "nagios  ALL=(root) NOPASSWD:/usr/sbin/ssacli, /usr/sbin/ipmi-sensors, /usr/sbin/ipmi-sel, /usr/sbin/ipmi-fru, /usr/sbin/ipmi-dcmi"
+    - name: installing intel-microcode
+      apt:
+        name: intel-microcode
+        state: present
+    - name: installing exim4-daemon-light
+      apt:
+        name: exim4-daemon-light
+        state: present
+    - name: removing postfix
+      apt:
+        name: postfix
+        state: absent
+        purge: yes
+    - name: installing ifupdown2
+      apt:
+        name: ifupdown2
+        state: present
+    - name: installing libpam-google-authenticator
+      apt:
+        name: libpam-google-authenticator
+        state: present
+    - name: adding google-authenticator lines to /etc/pam.d/sshd
+      blockinfile:
+        path: /etc/pam.d/sshd
+        block: |
+          # google-authenticator
+          auth    required      pam_unix.so     no_warn try_first_pass
+          # wenn auch accounts OHNE konfigurierten authenticator duerfen:
+          #auth    required      pam_google_authenticator.so nullok
+          # wenn alle mmuessen:
+          auth    required      pam_google_authenticator.so
+    - name: installing freeipmi
+      apt:
+        name: freeipmi
+        state: present
+    - name: installing libipc-run-perl
+      apt:
+        name: libipc-run-perl
+        state: present
+    - name: installing icinga2
+      apt:
+        name: icinga2
+        state: present
+    - name: installing unzip
+      apt:
+        name: unzip
+        state: present
+    - name: installing rpm2cpio
+      apt:
+        name: rpm2cpio
+        state: present
+    - name: installing zfs-zed
+      apt:
+        name: zfs-zed
+        state: present
+    - name: installing unattended-upgrades
+      apt:
+        name: unattended-upgrades
+        state: present
+    - name: copying template config for unattended-upgrades
+      template:
+        src: templ-PVE/50unattended-upgrades
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart unattended-upgrades
+    - name: creating /etc/exim4/exim4.conf
+      template:
+        src: templ-PVE/exim4.conf.templ
+        dest: /etc/exim4/exim4.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart exim4
+    - name: creating /usr/local/scripts
+      file:
+        path: /usr/local/scripts
+        state: directory
+        mode: '0755'
+    - name: copying check_ipmi_sensor
+      template:
+        src: scripts/check_ipmi_sensor
+        dest: /usr/local/scripts/check_ipmi_sensor
+        owner: root
+        group: root
+        mode: '0755'
+    - name: copying check_linux_memory_mte
+      template:
+        src: scripts/check_linux_memory_mte
+        dest: /usr/local/scripts/check_linux_memory_mte
+        owner: root
+        group: root
+        mode: '0755'
+    - name: copying check_cciss
+      template:
+        src: scripts/check_cciss
+        dest: /usr/local/scripts/check_cciss
+        owner: root
+        group: root
+        mode: '0755'
+    - name: copying check_zfs_mte.py
+      template:
+        src: scripts/check_zfs_mte.py
+        dest: /usr/local/scripts/check_zfs_mte.py
+        owner: root
+        group: root
+        mode: '0755'
+    - name: adding root forward to marte@xmn-berlin.de in /etc/aliases
+      lineinfile:
+        path: /etc/aliases
+        regexp: "^root:"
+        line: "root: marte@xmn-berlin.de"
+    - name: creating /etc/motd
+      template:
+        src: templ-PVE/motd.templ
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+  handlers:
+    - name: restart ssh
+      service: 
+        name: ssh 
+        state: restarted
+    - name: restart exim4
+      service: 
+        name: exim4
+        state: restarted
+    - name: restart unattended-upgrades
+      service: 
+        name: unattended-upgrades
+        state: restarted
